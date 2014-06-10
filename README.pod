@@ -1,0 +1,233 @@
+# NAME
+
+WWW::Shodan::API - Interface for the Shodan Computer Search Engine API
+
+# VERSION
+
+Version 0.008
+
+# OVERVIEW
+
+This module is to provide your Perl applications with easy access to the [Shodan API](https://developer.shodan.io/api).
+
+# SYNOPSIS
+
+        use WWW::Shodan::API;
+        use Data::Dumper;
+
+        use constant APIKEY => '7hI5i5n07@re@L@Pik3Yd0n7b3@dumMY';
+
+        my $shodan = WWW::Shodan::API->new( APIKEY );
+
+        print Dumper $shodan->api_info;
+        print Dumper $shodan->services;
+
+# GETTING STARTED
+
+- In order to use the Shodan API you need to have an API key, which can be obtained for free by creating a [Shodan account](https://account.shodan.io/register).
+- Become familiar with the [Shodan REST API Documentation](https://developer.shodan.io/api).
+
+# METHODS
+
+# SHODAN METHODS
+
+### $shodan->host\_ip
+
+Host Information - Returns all services that have been found on the given host IP.
+
+        $shodan->host_ip({ IP => '12.34.567.890' [,HISTORY => 1 [,MINIFY => 1]] })
+
+**Parameters**:
+
+This method accepts a hash reference as an argument, with three possible key/value pairs:
+
+- `IP` (required): Host IP address
+- `HISTORY` (optional): True if all historical banners should be returned (default: False)
+- `MINIFY` (optional): True to only return the list of ports and the general host information, no banners. (default: False)
+
+### $shodan->search
+
+Search Shodan - Search Shodan using the same query syntax as the website and use facets to get summary information for different properties.
+
+    my $query = {
+        product => 'Apache',
+        port    => 80,
+        link    => 'AX.25 radio modem',
+        os      => 'windows 7 or 8',
+        before  => '28/05/2014',
+        after   => '17/03/2011',
+        country => 'US',
+    };
+
+    my $facets = [ { 'isp' => 3 }, { 'os' => 2 }, 'version' ];
+
+    $shodan->search( $query, $facets, [{ PAGE => 5 [,NO_MINIFY => 1] }] )
+
+**Note:** This method may use API query credits depending on usage. If any of the following criteria are met, your account will be deducated 1 query credit:
+
+- The search query contains a filter.
+- Accessing results past the 1st page using the "page". For every 100 results past the 1st page 1 query credit is deducted.
+
+**Parameters**:
+
+The first argument is the `query` (required). It is a hash reference consisting of key/values pairs. For the full list of acceptable key/value pairs, consult the [Shodan REST API Documentation](https://developer.shodan.io/api).
+
+The next argument is `facets`, and will be a list of properties on which to summarize. It is an array reference containing strings and hash references. In the above example, the query response will include summary data for `isp`, `os`, and `version`, however only the first 3 `isp` results will be returned and only the first 2 `os` results will be returned. The `version` will also be summarized, but will not be limited to a particular count. All distinct `version`s will be returned in the resultset. For the full list of acceptable facets, consult the [Shodan REST API Documentation](https://developer.shodan.io/api).
+
+The third argument is an optional hash reference which may contain one or both of the following keys:
+
+`PAGE` - The page number to page through results 100 at a time (default: 1). In the above example, the query response will be limited to results 500-600 of the total resultset.
+
+`NO_MINIFY` - If supplied, some of the larger fields in the resultset will not be truncated. The default is to truncate those fields.
+
+### $shodan->count
+
+Search Shodan without Results
+
+    $shodan->count( $query, $facets )
+
+**Parameters**:
+
+This method behaves exactly as `$shodan->search` with the only difference being that this method does not return any host results, it returns the total number of results that matched the query and any facet information that was requested. As a result, this method does not consume query credits.
+
+The arguments to this method are identical to `$shodan->search`, except this one does not take an optional hash for `PAGE` and `NO_MINIFY` since this method only returns a count of results.
+
+### $shodan->tokens
+
+Break the search query into tokens - This method lets you determine which filters are being used by the query string and what parameters were provided to the filters.
+
+    $shodan->tokens( $query )
+
+**Parameters**:
+
+The only argument to this method is the `query` (required). For details on how to form the `query`, see the example for `$shodan->search`.
+
+### $shodan->services
+
+List all services that Shodan crawls - This method returns an object containing all the services that the Shodan crawlers look at. It can also be used as a quick and practical way to resolve a port number to the name of a service.
+
+    $shodan->services
+
+**Parameters**:
+
+None
+
+# DNS METHODS
+
+### $shodan->resolve\_dns
+
+DNS Lookup - Look up the IP address for the provided list of hostnames
+
+    $shodan->resolve_dns([ qw/google.com bing.com amazon.com/ ])
+
+**Parameters**:
+
+This method takes one argument, an array reference of domains to be resolved into ip addresses
+
+### $shodan->reverse\_dns
+
+Reverse DNS Lookup - Look up the hostnames that have been defined for the given list of IP addresses
+
+    $shodan->reverse_dns([ qw/74.125.227.230 204.79.197.200/ ])
+
+**Parameters**:
+
+This method takes one argument, an array reference of ips to be returned as hostnames
+
+# UTILITY METHODS
+
+### $shodan->my\_ip
+
+My IP Address - Get your current IP address as seen from the Internet
+
+    $shodan->my_ip
+
+**Parameters**:
+
+None
+
+# API STATUS METHODS
+
+### $shodan->api\_info
+
+API Plan Information - Returns information about the API plan belonging to the given API key
+
+    $shodan->api_info
+
+**Parameters**:
+
+None
+
+# AUTHOR
+
+Dudley Adams, `<dudleyadams at gmail.com>`
+
+# BUGS
+
+Please report any bugs or feature requests to `bug-www-shodan-api at rt.cpan.org`, or through
+the web interface at [http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-Shodan-API](http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-Shodan-API).  I will be notified, and then you'll
+automatically be notified of progress on your bug as I make changes.
+
+# SUPPORT
+
+You can find documentation for this module with the perldoc command.
+
+        perldoc WWW::Shodan::API
+
+You can also look for information at:
+
+- RT: CPAN's request tracker (report bugs here)
+
+    [http://rt.cpan.org/NoAuth/Bugs.html?Dist=WWW-Shodan-API](http://rt.cpan.org/NoAuth/Bugs.html?Dist=WWW-Shodan-API)
+
+- AnnoCPAN: Annotated CPAN documentation
+
+    [http://annocpan.org/dist/WWW-Shodan-API](http://annocpan.org/dist/WWW-Shodan-API)
+
+- CPAN Ratings
+
+    [http://cpanratings.perl.org/d/WWW-Shodan-API](http://cpanratings.perl.org/d/WWW-Shodan-API)
+
+- Search CPAN
+
+    [http://search.cpan.org/dist/WWW-Shodan-API/](http://search.cpan.org/dist/WWW-Shodan-API/)
+
+# LICENSE AND COPYRIGHT
+
+Copyright 2014 Dudley Adams.
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the the Artistic License (2.0). You may obtain a
+copy of the full license at:
+
+[http://www.perlfoundation.org/artistic\_license\_2\_0](http://www.perlfoundation.org/artistic_license_2_0)
+
+Any use, modification, and distribution of the Standard or Modified
+Versions is governed by this Artistic License. By using, modifying or
+distributing the Package, you accept this license. Do not use, modify,
+or distribute the Package, if you do not accept this license.
+
+If your Modified Version has been derived from a Modified Version made
+by someone other than you, you are nevertheless required to ensure that
+your Modified Version complies with the requirements of this license.
+
+This license does not grant you the right to use any trademark, service
+mark, tradename, or logo of the Copyright Holder.
+
+This license includes the non-exclusive, worldwide, free-of-charge
+patent license to make, have made, use, offer to sell, sell, import and
+otherwise transfer the Package with respect to any patent claims
+licensable by the Copyright Holder that are necessarily infringed by the
+Package. If you institute patent litigation (including a cross-claim or
+counterclaim) against any party alleging that the Package constitutes
+direct or contributory patent infringement, then this Artistic License
+to you shall terminate on the date that such litigation is filed.
+
+Disclaimer of Warranty: THE PACKAGE IS PROVIDED BY THE COPYRIGHT HOLDER
+AND CONTRIBUTORS "AS IS' AND WITHOUT ANY EXPRESS OR IMPLIED WARRANTIES.
+THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, OR NON-INFRINGEMENT ARE DISCLAIMED TO THE EXTENT PERMITTED BY
+YOUR LOCAL LAW. UNLESS REQUIRED BY LAW, NO COPYRIGHT HOLDER OR
+CONTRIBUTOR WILL BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, OR
+CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THE PACKAGE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
