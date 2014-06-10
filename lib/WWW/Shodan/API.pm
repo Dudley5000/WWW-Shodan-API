@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings FATAL => 'all';
 
-our $VERSION = '0.008';
+our $VERSION = '0.009';
 
 use Carp;
 use JSON;
@@ -272,7 +272,7 @@ WWW::Shodan::API - Interface for the Shodan Computer Search Engine API
 
 =head1 VERSION
 
-Version 0.008
+Version 0.009
 
 =cut
 
@@ -482,6 +482,14 @@ L<http://cpanratings.perl.org/d/WWW-Shodan-API>
 L<http://search.cpan.org/dist/WWW-Shodan-API/>
 
 =back
+
+=head1 SOURCE CODE
+
+This is open source software. The code repository is available for public review and contribution under the terms of the license.
+
+L<https://github.com/Dudley5000/WWW-Shodan-API>
+
+	git clone https://github.com/Dudley5000/WWW-Shodan-API.git
 
 =head1 LICENSE AND COPYRIGHT
 
