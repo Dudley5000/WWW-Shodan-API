@@ -1,51 +1,65 @@
-# NAME
+=head1 NAME
 
 WWW::Shodan::API - Interface for the Shodan Computer Search Engine API
 
-# VERSION
+=head1 VERSION
 
 Version 0.008
 
-# OVERVIEW
+=cut
 
-This module is to provide your Perl applications with easy access to the [Shodan API](https://developer.shodan.io/api).
 
-# SYNOPSIS
+=head1 OVERVIEW
 
-        use WWW::Shodan::API;
-        use Data::Dumper;
+This module is to provide your Perl applications with easy access to the L<Shodan API|https://developer.shodan.io/api>.
 
-        use constant APIKEY => '7hI5i5n07@re@L@Pik3Yd0n7b3@dumMY';
+=head1 SYNOPSIS
 
-        my $shodan = WWW::Shodan::API->new( APIKEY );
+	use WWW::Shodan::API;
+	use Data::Dumper;
 
-        print Dumper $shodan->api_info;
-        print Dumper $shodan->services;
+	use constant APIKEY => '7hI5i5n07@re@L@Pik3Yd0n7b3@dumMY';
 
-# GETTING STARTED
+	my $shodan = WWW::Shodan::API->new( APIKEY );
 
-- In order to use the Shodan API you need to have an API key, which can be obtained for free by creating a [Shodan account](https://account.shodan.io/register).
-- Become familiar with the [Shodan REST API Documentation](https://developer.shodan.io/api).
+	print Dumper $shodan->api_info;
+	print Dumper $shodan->services;
 
-# METHODS
+=head1 GETTING STARTED
 
-# SHODAN METHODS
+=over 2
 
-### $shodan->host\_ip
+=item * In order to use the Shodan API you need to have an API key, which can be obtained for free by creating a L<Shodan account|https://account.shodan.io/register>.
+
+=item * Become familiar with the L<Shodan REST API Documentation|https://developer.shodan.io/api>.
+
+=back
+
+=head1 METHODS
+
+=head1 SHODAN METHODS
+
+=head3 $shodan->host_ip
 
 Host Information - Returns all services that have been found on the given host IP.
 
-        $shodan->host_ip({ IP => '12.34.567.890' [,HISTORY => 1 [,MINIFY => 1]] })
+	$shodan->host_ip({ IP => '12.34.567.890' [,HISTORY => 1 [,MINIFY => 1]] })
 
-**Parameters**:
+B<Parameters>:
 
 This method accepts a hash reference as an argument, with three possible key/value pairs:
 
-- `IP` (required): Host IP address
-- `HISTORY` (optional): True if all historical banners should be returned (default: False)
-- `MINIFY` (optional): True to only return the list of ports and the general host information, no banners. (default: False)
+=over 2
 
-### $shodan->search
+=item C<IP> (required): Host IP address
+
+=item C<HISTORY> (optional): True if all historical banners should be returned (default: False)
+
+=item C<MINIFY> (optional): True to only return the list of ports and the general host information, no banners. (default: False)
+
+=back
+
+=head3 $shodan->search
 
 Search Shodan - Search Shodan using the same query syntax as the website and use facets to get summary information for different properties.
 
@@ -63,136 +77,145 @@ Search Shodan - Search Shodan using the same query syntax as the website and use
 
     $shodan->search( $query, $facets, [{ PAGE => 5 [,NO_MINIFY => 1] }] )
 
-**Note:** This method may use API query credits depending on usage. If any of the following criteria are met, your account will be deducated 1 query credit:
+B<Note:> This method may use API query credits depending on usage. If any of the following criteria are met, your account will be deducated 1 query credit:
 
-- The search query contains a filter.
-- Accessing results past the 1st page using the "page". For every 100 results past the 1st page 1 query credit is deducted.
+=over 4
 
-**Parameters**:
+=item The search query contains a filter.
 
-The first argument is the `query` (required). It is a hash reference consisting of key/values pairs. For the full list of acceptable key/value pairs, consult the [Shodan REST API Documentation](https://developer.shodan.io/api).
+=item Accessing results past the 1st page using the "page". For every 100 results past the 1st page 1 query credit is deducted.
 
-The next argument is `facets`, and will be a list of properties on which to summarize. It is an array reference containing strings and hash references. In the above example, the query response will include summary data for `isp`, `os`, and `version`, however only the first 3 `isp` results will be returned and only the first 2 `os` results will be returned. The `version` will also be summarized, but will not be limited to a particular count. All distinct `version`s will be returned in the resultset. For the full list of acceptable facets, consult the [Shodan REST API Documentation](https://developer.shodan.io/api).
+=back
+
+B<Parameters>:
+
+The first argument is the C<query> (required). It is a hash reference consisting of key/values pairs. For the full list of acceptable key/value pairs, consult the L<Shodan REST API Documentation|https://developer.shodan.io/api>.
+
+The next argument is C<facets>, and will be a list of properties on which to summarize. It is an array reference containing strings and hash references. In the above example, the query response will include summary data for F<isp>, F<os>, and F<version>, however only the first 3 F<isp> results will be returned and only the first 2 F<os> results will be returned. The F<version> will also be summarized, but will not be limited to a particular count. All distinct F<version>s will be returned in the resultset. For the full list of acceptable facets, consult the L<Shodan REST API Documentation|https://developer.shodan.io/api>.
 
 The third argument is an optional hash reference which may contain one or both of the following keys:
 
-`PAGE` - The page number to page through results 100 at a time (default: 1). In the above example, the query response will be limited to results 500-600 of the total resultset.
+C<PAGE> - The page number to page through results 100 at a time (default: 1). In the above example, the query response will be limited to results 500-600 of the total resultset.
 
-`NO_MINIFY` - If supplied, some of the larger fields in the resultset will not be truncated. The default is to truncate those fields.
+C<NO_MINIFY> - If supplied, some of the larger fields in the resultset will not be truncated. The default is to truncate those fields.
 
-### $shodan->count
+=head3 $shodan->count
 
 Search Shodan without Results
 
     $shodan->count( $query, $facets )
 
-**Parameters**:
+B<Parameters>:
 
-This method behaves exactly as `$shodan->search` with the only difference being that this method does not return any host results, it returns the total number of results that matched the query and any facet information that was requested. As a result, this method does not consume query credits.
+This method behaves exactly as C<$shodan-E<gt>search> with the only difference being that this method does not return any host results, it returns the total number of results that matched the query and any facet information that was requested. As a result, this method does not consume query credits.
 
-The arguments to this method are identical to `$shodan->search`, except this one does not take an optional hash for `PAGE` and `NO_MINIFY` since this method only returns a count of results.
+The arguments to this method are identical to C<$shodan-E<gt>search>, except this one does not take an optional hash for C<PAGE> and C<NO_MINIFY> since this method only returns a count of results.
 
-### $shodan->tokens
+=head3 $shodan->tokens
 
 Break the search query into tokens - This method lets you determine which filters are being used by the query string and what parameters were provided to the filters.
 
     $shodan->tokens( $query )
 
-**Parameters**:
+B<Parameters>:
 
-The only argument to this method is the `query` (required). For details on how to form the `query`, see the example for `$shodan->search`.
+The only argument to this method is the C<query> (required). For details on how to form the C<query>, see the example for C<$shodan-E<gt>search>.
 
-### $shodan->services
+=head3 $shodan->services
 
 List all services that Shodan crawls - This method returns an object containing all the services that the Shodan crawlers look at. It can also be used as a quick and practical way to resolve a port number to the name of a service.
 
     $shodan->services
 
-**Parameters**:
+B<Parameters>:
 
 None
 
-# DNS METHODS
+=head1 DNS METHODS
 
-### $shodan->resolve\_dns
+=head3 $shodan->resolve_dns
 
 DNS Lookup - Look up the IP address for the provided list of hostnames
 
     $shodan->resolve_dns([ qw/google.com bing.com amazon.com/ ])
 
-**Parameters**:
+B<Parameters>:
 
 This method takes one argument, an array reference of domains to be resolved into ip addresses
 
-### $shodan->reverse\_dns
+=head3 $shodan->reverse_dns
 
 Reverse DNS Lookup - Look up the hostnames that have been defined for the given list of IP addresses
 
     $shodan->reverse_dns([ qw/74.125.227.230 204.79.197.200/ ])
 
-**Parameters**:
+B<Parameters>:
 
 This method takes one argument, an array reference of ips to be returned as hostnames
 
-# UTILITY METHODS
+=head1 UTILITY METHODS
 
-### $shodan->my\_ip
+=head3 $shodan->my_ip
 
 My IP Address - Get your current IP address as seen from the Internet
 
     $shodan->my_ip
 
-**Parameters**:
+B<Parameters>:
 
 None
 
-# API STATUS METHODS
+=head1 API STATUS METHODS
 
-### $shodan->api\_info
+=head3 $shodan->api_info
 
 API Plan Information - Returns information about the API plan belonging to the given API key
 
     $shodan->api_info
 
-**Parameters**:
+B<Parameters>:
 
 None
 
-# AUTHOR
+=head1 AUTHOR
 
-Dudley Adams, `<dudleyadams at gmail.com>`
+Dudley Adams, C<< <dudleyadams at gmail.com> >>
 
-# BUGS
+=head1 BUGS
 
-Please report any bugs or feature requests to `bug-www-shodan-api at rt.cpan.org`, or through
-the web interface at [http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-Shodan-API](http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-Shodan-API).  I will be notified, and then you'll
+Please report any bugs or feature requests to C<bug-www-shodan-api at rt.cpan.org>, or through
+the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-Shodan-API>.  I will be notified, and then you'll
 automatically be notified of progress on your bug as I make changes.
 
-# SUPPORT
+=head1 SUPPORT
 
 You can find documentation for this module with the perldoc command.
 
-        perldoc WWW::Shodan::API
+	perldoc WWW::Shodan::API
 
 You can also look for information at:
 
-- RT: CPAN's request tracker (report bugs here)
+=over 4
 
-    [http://rt.cpan.org/NoAuth/Bugs.html?Dist=WWW-Shodan-API](http://rt.cpan.org/NoAuth/Bugs.html?Dist=WWW-Shodan-API)
+=item * RT: CPAN's request tracker (report bugs here)
 
-- AnnoCPAN: Annotated CPAN documentation
+L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=WWW-Shodan-API>
 
-    [http://annocpan.org/dist/WWW-Shodan-API](http://annocpan.org/dist/WWW-Shodan-API)
+=item * AnnoCPAN: Annotated CPAN documentation
 
-- CPAN Ratings
+L<http://annocpan.org/dist/WWW-Shodan-API>
 
-    [http://cpanratings.perl.org/d/WWW-Shodan-API](http://cpanratings.perl.org/d/WWW-Shodan-API)
+=item * CPAN Ratings
 
-- Search CPAN
+L<http://cpanratings.perl.org/d/WWW-Shodan-API>
 
-    [http://search.cpan.org/dist/WWW-Shodan-API/](http://search.cpan.org/dist/WWW-Shodan-API/)
+=item * Search CPAN
 
-# LICENSE AND COPYRIGHT
+L<http://search.cpan.org/dist/WWW-Shodan-API/>
+
+=back
+
+=head1 LICENSE AND COPYRIGHT
 
 Copyright 2014 Dudley Adams.
 
@@ -200,7 +223,7 @@ This program is free software; you can redistribute it and/or modify it
 under the terms of the the Artistic License (2.0). You may obtain a
 copy of the full license at:
 
-[http://www.perlfoundation.org/artistic\_license\_2\_0](http://www.perlfoundation.org/artistic_license_2_0)
+L<http://www.perlfoundation.org/artistic_license_2_0>
 
 Any use, modification, and distribution of the Standard or Modified
 Versions is governed by this Artistic License. By using, modifying or
@@ -231,3 +254,5 @@ YOUR LOCAL LAW. UNLESS REQUIRED BY LAW, NO COPYRIGHT HOLDER OR
 CONTRIBUTOR WILL BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, OR
 CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THE PACKAGE,
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+=cut
