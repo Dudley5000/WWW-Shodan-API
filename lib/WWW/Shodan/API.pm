@@ -11,9 +11,6 @@ use JSON;
 use LWP::UserAgent;
 use URI::Escape;
 
-our $ua   = LWP::UserAgent->new;
-our $json = JSON->new->allow_nonref;
-
 use constant BASE_URL          => 'https://api.shodan.io';
 use constant MY_IP_ENDPOINT    => '/tools/myip?key=';
 use constant API_INFO_ENDPOINT => '/api-info?key=';
@@ -29,25 +26,47 @@ use constant TOKENS_ENDPOINT  => '/shodan/host/search/tokens?key=KEY&query=QUERY
 
 sub new {
     my ( $class, $apikey ) = @_;
-    my $self = { APIKEY => $apikey };
+    my $ua = LWP::UserAgent->new;
+    my $json = JSON->new->allow_nonref;
+
+    my $self = {
+        APIKEY => $apikey,
+        UA     => $ua,
+        JSON   => $json,
+    };
     bless $self, $class;
     return $self;
 }
 
-sub api_info {
-    my $self     = shift;
-    my $response = $ua->get( BASE_URL . API_INFO_ENDPOINT . $self->_get_apikey );
+sub _ua {
+    my $self = shift;
+    return $self->{UA};
+}
+
+sub _json {
+    my $self =shift;
+    return $self->{JSON};
+}
+
+sub _request {
+    my ($self, $endpoint) = @_;
+    my $response = $self->_ua->get(BASE_URL . $endpoint);
     if ( $response->is_success ) {
-        my $result = $json->decode( $response->decoded_content );
-        for my $value ( values %$result ) {
-            next unless JSON::is_bool($value);
-            $value = ( $value ? 'true' : 'false' );
-        }
-        return $result;
+        return $self->_json->decode( $response->decoded_content );
     }
     else {
         croak $response->status_line;
     }
+}
+
+sub api_info {
+    my $self     = shift;
+    my $result = $self->_request( API_INFO_ENDPOINT . $self->_get_apikey );
+    for my $value ( values %$result ) {
+        next unless JSON::is_bool($value);
+        $value = ( $value ? 'true' : 'false' );
+    }
+    return $result;
 }
 
 sub resolve_dns {
@@ -55,13 +74,8 @@ sub resolve_dns {
     my $end_point = DNS_RESOLVE_ENDPOINT;
     $hostnames = join( ",", @$hostnames );
     $end_point =~ s/HOSTNAMES/$hostnames/;
-    my $response = $ua->get( BASE_URL . $end_point . $self->_get_apikey );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+
+    $self->_request( $end_point . $self->_get_apikey );
 }
 
 sub reverse_dns {
@@ -69,13 +83,8 @@ sub reverse_dns {
     my $end_point = DNS_REVERSE_ENDPOINT;
     $ips = join( ",", @$ips );
     $end_point =~ s/IPS/$ips/;
-    my $response = $ua->get( BASE_URL . $end_point . $self->_get_apikey );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+
+    $self->_request( $end_point . $self->_get_apikey );
 }
 
 sub host_ip {
@@ -87,13 +96,7 @@ sub host_ip {
     $end_point .= '&history=true' if $args->{HISTORY};
     $end_point .= '&minify=true' if $args->{MINIFY};
 
-    my $response = $ua->get( BASE_URL . $end_point );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+    $self->_request( $end_point );
 }
 
 sub search {
@@ -147,13 +150,7 @@ sub search {
 
     $end_point .= '&minify=false' if defined $args->{NO_MINIFY};
 
-    my $response = $ua->get( BASE_URL . $end_point );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+    $self->_request( $end_point );
 } ## end sub search
 
 sub tokens {
@@ -173,13 +170,7 @@ sub tokens {
     $end_point =~ s/QUERY/$str/;
     $end_point =~ s/&query=// unless scalar keys %$query;
 
-    my $response = $ua->get( BASE_URL . $end_point );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+    $self->_request( $end_point );
 }
 
 sub count {
@@ -226,35 +217,17 @@ sub count {
     $end_point =~ s/FACETS/$str/;
     $end_point =~ s/&facets=// unless scalar @$facet;
 
-    my $response = $ua->get( BASE_URL . $end_point );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+    $self->_request( $end_point );
 } ## end sub count
 
 sub my_ip {
     my $self     = shift;
-    my $response = $ua->get( BASE_URL . MY_IP_ENDPOINT . $self->_get_apikey );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+    $self->_request( MY_IP_ENDPOINT . $self->_get_apikey );
 }
 
 sub services {
     my $self     = shift;
-    my $response = $ua->get( BASE_URL . SERVICES_ENDPOINT . $self->_get_apikey );
-    if ( $response->is_success ) {
-        return $json->decode( $response->decoded_content );
-    }
-    else {
-        croak $response->status_line;
-    }
+    $self->_request( SERVICES_ENDPOINT . $self->_get_apikey );
 }
 
 sub _get_apikey {
