@@ -4,7 +4,7 @@ WWW::Shodan::API - Interface for the Shodan Computer Search Engine API
 
 =head1 VERSION
 
-Version 0.009
+Version 0.010
 
 =cut
 
