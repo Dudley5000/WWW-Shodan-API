@@ -51,11 +51,18 @@ sub _json {
 sub _request {
     my ($self, $endpoint) = @_;
     my $response = $self->_ua->get(BASE_URL . $endpoint);
-    if ( $response->is_success ) {
-        return $self->_json->decode( $response->decoded_content );
+    my $data;
+    eval {
+        $data = $self->_json->decode( $response->decoded_content );
+    };
+    if ( $response->is_success && $data ) {
+        return $data;
     }
     else {
-        croak $response->status_line;
+        croak sprintf "%s - %s",
+            $response->status_line,
+            ($data && $data->{error}) ? $data->{error} : 'API provided no error message',
+
     }
 }
 
