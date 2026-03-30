@@ -1,0 +1,24 @@
+Revision history for WWW-Shodan-API
+
+0.021 2026-03-27
+    - Refactored internal _request method to support GET, POST, PUT, and DELETE
+      with JSON and form-encoded request bodies
+    - Added search_facets, search_filters
+    - Added on-demand scanning: ports, protocols, scan, scan_internet, scans, scan_status
+    - Added network alerts: create_alert, alerts_info, alert_info, edit_alert,
+      delete_alert, alert_triggers, enable_trigger, disable_trigger,
+      add_whitelist, remove_whitelist, add_notifier, remove_notifier
+    - Added notifiers: notifiers, notifier_providers, notifier_info,
+      create_notifier, edit_notifier, delete_notifier
+    - Added directory methods: queries, search_queries, query_tags
+    - Added account method: profile
+    - Added DNS method: domain_info
+    - Added utility method: http_headers
+    - Simplified query and facet string building (extracted _build_query_str
+      and _build_facets_str helpers)
+
+0.010 2014-xx-xx
+    - Bubble up API errors in HTTP response body
+
+0.009 2014-xx-xx
+    - Initial CPAN release

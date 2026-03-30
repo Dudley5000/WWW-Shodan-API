@@ -4,29 +4,20 @@ use 5.006;
 use strict;
 use warnings FATAL => 'all';
 
-our $VERSION = '0.010';
+our $VERSION = '0.021';
 
 use Carp;
+use HTTP::Request;
 use JSON;
 use LWP::UserAgent;
+use URI;
 use URI::Escape;
 
-use constant BASE_URL          => 'https://api.shodan.io';
-use constant MY_IP_ENDPOINT    => '/tools/myip?key=';
-use constant API_INFO_ENDPOINT => '/api-info?key=';
-use constant SERVICES_ENDPOINT => '/shodan/services?key=';
-
-use constant DNS_RESOLVE_ENDPOINT => '/dns/resolve?hostnames=HOSTNAMES&key=';
-use constant DNS_REVERSE_ENDPOINT => '/dns/reverse?ips=IPS&key=';
-
-use constant HOST_IP_ENDPOINT => '/shodan/host/IP?key=';
-use constant SEARCH_ENDPOINT  => '/shodan/host/search?key=KEY&query=QUERY&facets=FACETS';
-use constant COUNT_ENDPOINT   => '/shodan/host/count?key=KEY&query=QUERY&facets=FACETS';
-use constant TOKENS_ENDPOINT  => '/shodan/host/search/tokens?key=KEY&query=QUERY';
+use constant BASE_URL => 'https://api.shodan.io';
 
 sub new {
     my ( $class, $apikey ) = @_;
-    my $ua = LWP::UserAgent->new;
+    my $ua   = LWP::UserAgent->new;
     my $json = JSON->new->allow_nonref;
 
     my $self = {
@@ -44,33 +35,49 @@ sub _ua {
 }
 
 sub _json {
-    my $self =shift;
+    my $self = shift;
     return $self->{JSON};
 }
 
 sub _request {
-    my ($self, $endpoint) = @_;
-    my $response = $self->_ua->get(BASE_URL . $endpoint);
+    my ( $self, $method, $path, %opts ) = @_;
+
+    my $uri   = URI->new( BASE_URL . $path );
+    my %query = ( key => $self->_get_apikey, %{ $opts{query} // {} } );
+    $uri->query_form( %query );
+
+    my $req = HTTP::Request->new( $method => $uri->as_string );
+
+    if ( $opts{json} ) {
+        $req->header( 'Content-Type' => 'application/json' );
+        $req->content( $self->_json->encode( $opts{json} ) );
+    }
+    elsif ( $opts{form} ) {
+        my $tmp = URI->new( 'http://x/' );
+        $tmp->query_form( %{ $opts{form} } );
+        $req->header( 'Content-Type' => 'application/x-www-form-urlencoded' );
+        $req->content( $tmp->query // '' );
+    }
+
+    my $response = $self->_ua->request( $req );
     my $data;
-    eval {
-        $data = $self->_json->decode( $response->decoded_content );
-    };
-    if ( $response->is_success && $data ) {
+    eval { $data = $self->_json->decode( $response->decoded_content ) };
+
+    if ( $response->is_success && defined $data ) {
         return $data;
     }
     else {
         croak sprintf "%s - %s",
-            $response->status_line,
-            ($data && $data->{error}) ? $data->{error} : 'API provided no error message',
-
+          $response->status_line,
+          ( $data && $data->{error} ) ? $data->{error} : 'API provided no error message';
     }
 }
 
 sub api_info {
-    my $self     = shift;
-    my $result = $self->_request( API_INFO_ENDPOINT . $self->_get_apikey );
+    my $self   = shift;
+    my $result = $self->_request( 'GET', '/api-info' );
     for my $value ( values %$result ) {
-        next unless JSON::is_bool($value);
+        next unless JSON::is_bool( $value );
         $value = ( $value ? 'true' : 'false' );
     }
     return $result;
@@ -78,163 +85,290 @@ sub api_info {
 
 sub resolve_dns {
     my ( $self, $hostnames ) = @_;
-    my $end_point = DNS_RESOLVE_ENDPOINT;
-    $hostnames = join( ",", @$hostnames );
-    $end_point =~ s/HOSTNAMES/$hostnames/;
-
-    $self->_request( $end_point . $self->_get_apikey );
+    my $hosts = join( ",", @$hostnames );
+    return $self->_request( 'GET', '/dns/resolve', query => { hostnames => $hosts } );
 }
 
 sub reverse_dns {
     my ( $self, $ips ) = @_;
-    my $end_point = DNS_REVERSE_ENDPOINT;
-    $ips = join( ",", @$ips );
-    $end_point =~ s/IPS/$ips/;
-
-    $self->_request( $end_point . $self->_get_apikey );
+    return $self->_request( 'GET', '/dns/reverse',
+        query => { ips => join( ',', @$ips ) } );
 }
 
 sub host_ip {
     my ( $self, $args ) = @_;
-    my $end_point = HOST_IP_ENDPOINT;
-    my $ip        = $args->{IP};
-    $end_point =~ s/IP/$ip/;
-    $end_point .= $self->_get_apikey;
-    $end_point .= '&history=true' if $args->{HISTORY};
-    $end_point .= '&minify=true' if $args->{MINIFY};
+    my %query;
+    $query{history} = 'true' if $args->{HISTORY};
+    $query{minify}  = 'true' if $args->{MINIFY};
+    return $self->_request( 'GET', "/shodan/host/$args->{IP}", query => \%query );
+}
 
-    $self->_request( $end_point );
+sub _build_query_str {
+    my ( $query ) = @_;
+    return '' unless ref $query eq 'HASH' && scalar keys %$query;
+    return join( ' ', map { "$_:$query->{$_}" } keys %$query );
+}
+
+sub _build_facets_str {
+    my ( $facets ) = @_;
+    return '' unless ref $facets eq 'ARRAY' && scalar @$facets;
+    my @parts;
+    for my $f ( @$facets ) {
+        if ( ref $f eq 'HASH' ) {
+            my ( $k ) = keys %$f;
+            my $v = $f->{$k};
+            push @parts, "$k:$v";
+        }
+        else {
+            push @parts, $f;
+        }
+    }
+    return join( ',', @parts );
 }
 
 sub search {
     my ( $self, $query, $facet, $args ) = @_;
-    my $end_point = SEARCH_ENDPOINT;
-    my $apikey    = $self->_get_apikey;
-    $end_point =~ s/KEY/$apikey/;
-    my $str = '';
-
-    if ( scalar keys %$query ) {
-        for my $q ( keys %$query ) {
-            $query->{$q} =~ s/ /+/g;
-            $str .= $q . ':' . uri_escape( $query->{$q} ) . '+';
-        }
-    }
-    $str       =~ s/\+$//;
-    $end_point =~ s/QUERY/$str/;
-    $end_point =~ s/&query=// unless scalar keys %$query;
-    $str = '';
-
-    # $facet is an array ref potentially containing hash refs
-    # ex. [ 'org', 'port', { os => 50 } ]
-
-    if ( scalar @$facet ) {
-      FACET:
-        for my $f (@$facet) {
-            if ( ref $f eq 'HASH' ) {
-                my ( $k, $v ) = each %$f;
-                $str .= $k . ':' . uri_escape( $v . ',' );
-                next FACET;
-            }
-            $str .= uri_escape( $f . ',' );
-        }
-    }
-
-    my $plus      = uri_escape('+');
-    my $comma     = uri_escape(',');
-    my $ampersand = uri_escape('&');
-
-    $str =~ s/$plus$//;
-    $str =~ s/$comma$//;
-    $str =~ s/$ampersand$//;
-
-    $end_point =~ s/FACETS/$str/;
-    $end_point =~ s/&facets=// unless scalar @$facet;
-
-    if ( defined $args->{PAGE} ) {
-        my $pgnum = $args->{PAGE};
-        $end_point .= '&page=' . $pgnum;
-    }
-
-    $end_point .= '&minify=false' if defined $args->{NO_MINIFY};
-
-    $self->_request( $end_point );
-} ## end sub search
+    $facet //= [];
+    $args  //= {};
+    my %params;
+    my $qstr = _build_query_str( $query );
+    $params{query} = $qstr if $qstr;
+    my $fstr = _build_facets_str( $facet );
+    $params{facets} = $fstr         if $fstr;
+    $params{page}   = $args->{PAGE} if defined $args->{PAGE};
+    $params{minify} = 'false'       if defined $args->{NO_MINIFY};
+    return $self->_request( 'GET', '/shodan/host/search', query => \%params );
+}
 
 sub tokens {
     my ( $self, $query ) = @_;
-    my $end_point = TOKENS_ENDPOINT;
-    my $apikey    = $self->_get_apikey;
-    $end_point =~ s/KEY/$apikey/;
-    my $str = '';
-
-    if ( scalar keys %$query ) {
-        for my $q ( keys %$query ) {
-            $query->{$q} =~ s/ /+/g;
-            $str .= $q . ':' . uri_escape( $query->{$q} ) . '+';
-        }
-    }
-    $str       =~ s/\+$//;
-    $end_point =~ s/QUERY/$str/;
-    $end_point =~ s/&query=// unless scalar keys %$query;
-
-    $self->_request( $end_point );
+    my %params;
+    my $qstr = _build_query_str( $query );
+    $params{query} = $qstr if $qstr;
+    return $self->_request( 'GET', '/shodan/host/search/tokens', query => \%params );
 }
 
 sub count {
     my ( $self, $query, $facet ) = @_;
-    my $end_point = COUNT_ENDPOINT;
-    my $apikey    = $self->_get_apikey;
-    $end_point =~ s/KEY/$apikey/;
-    my $str = '';
-
-    if ( scalar keys %$query ) {
-        for my $q ( keys %$query ) {
-            $query->{$q} =~ s/ /+/g;
-            $str .= $q . ':' . uri_escape( $query->{$q} ) . '+';
-        }
-    }
-    $str       =~ s/\+$//;
-    $end_point =~ s/QUERY/$str/;
-    $end_point =~ s/&query=// unless scalar keys %$query;
-    $str = '';
-
-    # $facet is an array ref potentially containing hash refs
-    # ex. [ 'org', 'port', { os => 50 } ]
-
-    if ( scalar @$facet ) {
-      FACET:
-        for my $f (@$facet) {
-            if ( ref $f eq 'HASH' ) {
-                my ( $k, $v ) = each %$f;
-                $str .= $k . ':' . uri_escape( $v . ',' );
-                next FACET;
-            }
-            $str .= uri_escape( $f . ',' );
-        }
-    }
-
-    my $plus      = uri_escape('+');
-    my $comma     = uri_escape(',');
-    my $ampersand = uri_escape('&');
-
-    $str =~ s/$plus$//;
-    $str =~ s/$comma$//;
-    $str =~ s/$ampersand$//;
-
-    $end_point =~ s/FACETS/$str/;
-    $end_point =~ s/&facets=// unless scalar @$facet;
-
-    $self->_request( $end_point );
-} ## end sub count
+    $facet //= [];
+    my %params;
+    my $qstr = _build_query_str( $query );
+    $params{query} = $qstr if $qstr;
+    my $fstr = _build_facets_str( $facet );
+    $params{facets} = $fstr if $fstr;
+    return $self->_request( 'GET', '/shodan/host/count', query => \%params );
+}
 
 sub my_ip {
-    my $self     = shift;
-    $self->_request( MY_IP_ENDPOINT . $self->_get_apikey );
+    my $self = shift;
+    return $self->_request( 'GET', '/tools/myip' );
 }
 
 sub services {
-    my $self     = shift;
-    $self->_request( SERVICES_ENDPOINT . $self->_get_apikey );
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/services' );
+}
+
+# Search additions
+
+sub search_facets {
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/host/search/facets' );
+}
+
+sub search_filters {
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/host/search/filters' );
+}
+
+# On-Demand Scanning
+
+sub ports {
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/ports' );
+}
+
+sub protocols {
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/protocols' );
+}
+
+sub scan {
+    my ( $self, $ips ) = @_;
+    return $self->_request( 'POST', '/shodan/scan',
+        form => { ips => join( ',', @$ips ) } );
+}
+
+sub scan_internet {
+    my ( $self, $args ) = @_;
+    return $self->_request( 'POST', '/shodan/scan/internet',
+        form => { port => $args->{port}, protocol => $args->{protocol} } );
+}
+
+sub scans {
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/scans' );
+}
+
+sub scan_status {
+    my ( $self, $id ) = @_;
+    return $self->_request( 'GET', "/shodan/scan/$id" );
+}
+
+# Network Alerts
+
+sub create_alert {
+    my ( $self, $args ) = @_;
+    my %body = (
+        name    => $args->{name},
+        filters => { ip => $args->{ips} },
+    );
+    $body{expires} = $args->{expires} if defined $args->{expires};
+    return $self->_request( 'POST', '/shodan/alert', json => \%body );
+}
+
+sub alerts_info {
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/alert/info' );
+}
+
+sub alert_info {
+    my ( $self, $id ) = @_;
+    return $self->_request( 'GET', "/shodan/alert/$id/info" );
+}
+
+sub edit_alert {
+    my ( $self, $args ) = @_;
+    return $self->_request( 'POST', "/shodan/alert/$args->{id}",
+        json => { filters => { ip => $args->{ips} } } );
+}
+
+sub delete_alert {
+    my ( $self, $id ) = @_;
+    return $self->_request( 'DELETE', "/shodan/alert/$id" );
+}
+
+sub alert_triggers {
+    my $self = shift;
+    return $self->_request( 'GET', '/shodan/alert/triggers' );
+}
+
+sub enable_trigger {
+    my ( $self, $args ) = @_;
+    return $self->_request( 'PUT', "/shodan/alert/$args->{id}/trigger/$args->{trigger}" );
+}
+
+sub disable_trigger {
+    my ( $self, $args ) = @_;
+    return $self->_request( 'DELETE', "/shodan/alert/$args->{id}/trigger/$args->{trigger}" );
+}
+
+sub add_whitelist {
+    my ( $self, $args ) = @_;
+    my $svc = uri_escape( $args->{service} );
+    return $self->_request( 'PUT',
+        "/shodan/alert/$args->{id}/trigger/$args->{trigger}/ignore/$svc" );
+}
+
+sub remove_whitelist {
+    my ( $self, $args ) = @_;
+    my $svc = uri_escape( $args->{service} );
+    return $self->_request( 'DELETE',
+        "/shodan/alert/$args->{id}/trigger/$args->{trigger}/ignore/$svc" );
+}
+
+sub add_notifier {
+    my ( $self, $args ) = @_;
+    return $self->_request( 'PUT', "/shodan/alert/$args->{id}/notifier/$args->{notifier_id}" );
+}
+
+sub remove_notifier {
+    my ( $self, $args ) = @_;
+    return $self->_request( 'DELETE', "/shodan/alert/$args->{id}/notifier/$args->{notifier_id}" );
+}
+
+# Notifiers
+
+sub notifiers {
+    my $self = shift;
+    return $self->_request( 'GET', '/notifier' );
+}
+
+sub notifier_providers {
+    my $self = shift;
+    return $self->_request( 'GET', '/notifier/provider' );
+}
+
+sub notifier_info {
+    my ( $self, $id ) = @_;
+    return $self->_request( 'GET', "/notifier/$id" );
+}
+
+sub create_notifier {
+    my ( $self, $args ) = @_;
+    return $self->_request( 'POST', '/notifier',
+        form => {
+            provider    => $args->{provider},
+            description => $args->{description},
+            to          => $args->{to},
+        } );
+}
+
+sub edit_notifier {
+    my ( $self, $args ) = @_;
+    my %body;
+    $body{provider}    = $args->{provider}    if defined $args->{provider};
+    $body{description} = $args->{description} if defined $args->{description};
+    $body{to}          = $args->{to}          if defined $args->{to};
+    return $self->_request( 'PUT', "/notifier/$args->{id}", form => \%body );
+}
+
+sub delete_notifier {
+    my ( $self, $id ) = @_;
+    return $self->_request( 'DELETE', "/notifier/$id" );
+}
+
+# Directory Methods
+
+sub queries {
+    my ( $self, $args ) = @_;
+    $args //= {};
+    return $self->_request( 'GET', '/shodan/query', query => $args );
+}
+
+sub search_queries {
+    my ( $self, $args ) = @_;
+    $args //= {};
+    return $self->_request( 'GET', '/shodan/query/search', query => $args );
+}
+
+sub query_tags {
+    my ( $self, $args ) = @_;
+    $args //= {};
+    return $self->_request( 'GET', '/shodan/query/tags', query => $args );
+}
+
+# Account Methods
+
+sub profile {
+    my $self = shift;
+    return $self->_request( 'GET', '/account/profile' );
+}
+
+# DNS additions
+
+sub domain_info {
+    my ( $self, $args ) = @_;
+    $args = { domain => $args } unless ref $args;
+    my $domain = delete $args->{domain};
+    return $self->_request( 'GET', "/dns/domain/$domain", query => $args );
+}
+
+# Utility additions
+
+sub http_headers {
+    my $self = shift;
+    return $self->_request( 'GET', '/tools/httpheaders' );
 }
 
 sub _get_apikey {
@@ -252,26 +386,34 @@ WWW::Shodan::API - Interface for the Shodan Computer Search Engine API
 
 =head1 VERSION
 
-Version 0.010
+Version 0.021
 
 =cut
 
-
 =head1 OVERVIEW
 
-This module is to provide your Perl applications with easy access to the L<Shodan API|https://developer.shodan.io/api>.
+This module provides Perl applications with easy access to the L<Shodan API|https://developer.shodan.io/api>.
 
 =head1 SYNOPSIS
 
-	use WWW::Shodan::API;
-	use Data::Dumper;
+    use WWW::Shodan::API;
+    use Data::Dumper;
 
-	use constant APIKEY => '7hI5i5n07@re@L@Pik3Yd0n7b3@dumMY';
+    use constant APIKEY => '7hI5i5n07@re@L@Pik3Yd0n7b3@dumMY';
 
-	my $shodan = WWW::Shodan::API->new( APIKEY );
+    my $shodan = WWW::Shodan::API->new( APIKEY );
 
-	print Dumper $shodan->api_info;
-	print Dumper $shodan->services;
+    print Dumper $shodan->api_info;
+    print Dumper $shodan->profile;
+    print Dumper $shodan->host_ip({ IP => '8.8.8.8' });
+
+    # Search
+    my $results = $shodan->search({ port => 80, product => 'Apache' }, ['org', 'country'], {});
+    print Dumper $results;
+
+    # Alerts
+    my $alert = $shodan->create_alert({ name => 'My Network', ips => ['1.2.3.0/24'] });
+    print "Alert ID: $alert->{id}\n";
 
 =head1 GETTING STARTED
 
@@ -285,145 +427,333 @@ This module is to provide your Perl applications with easy access to the L<Shoda
 
 =head1 METHODS
 
-=head1 SHODAN METHODS
+=head3 new
+
+Constructor - Creates a new WWW::Shodan::API object.
+
+    my $shodan = WWW::Shodan::API->new($apikey);
+
+Takes a Shodan API key as its only argument.
+
+=head1 SHODAN SEARCH METHODS
 
 =head3 $shodan->host_ip
 
 Host Information - Returns all services that have been found on the given host IP.
 
-	$shodan->host_ip({ IP => '12.34.567.890' [,HISTORY => 1 [,MINIFY => 1]] })
+    $shodan->host_ip({ IP => '12.34.56.78' [, HISTORY => 1 [, MINIFY => 1]] })
 
-B<Parameters>:
-
-This method accepts a hash reference as an argument, with three possible key/value pairs:
+B<Parameters>: Hash reference with keys:
 
 =over 2
 
 =item C<IP> (required): Host IP address
 
-=item C<HISTORY> (optional): True if all historical banners should be returned (default: False)
+=item C<HISTORY> (optional): True to return all historical banners (default: false)
 
-=item C<MINIFY> (optional): True to only return the list of ports and the general host information, no banners. (default: False)
+=item C<MINIFY> (optional): True to return only ports and general host info, no banners (default: false)
 
 =back
 
 =head3 $shodan->search
 
-Search Shodan - Search Shodan using the same query syntax as the website and use facets to get summary information for different properties.
+Search Shodan using the same query syntax as the website. May consume query credits.
 
-    my $query = {
-        product => 'Apache',
-        port    => 80,
-        link    => 'AX.25 radio modem',
-        os      => 'windows 7 or 8',
-        before  => '28/05/2014',
-        after   => '17/03/2011',
-        country => 'US',
-    };
+    my $query  = { product => 'Apache', port => 80, country => 'US' };
+    my $facets = [ { isp => 3 }, { os => 2 }, 'version' ];
+    $shodan->search( $query, $facets, { PAGE => 2 } )
 
-    my $facets = [ { 'isp' => 3 }, { 'os' => 2 }, 'version' ];
+B<Parameters>:
 
-    $shodan->search( $query, $facets, [{ PAGE => 5 [,NO_MINIFY => 1] }] )
+=over 2
 
-B<Note:> This method may use API query credits depending on usage. If any of the following criteria are met, your account will be deducated 1 query credit:
+=item C<$query> (required): Hash reference of search filter key/value pairs.
 
-=over 4
+=item C<$facets> (optional): Array reference of facets. Each element is either a string (e.g. C<'org'>) or a hash ref specifying a count limit (e.g. C<{ os =E<gt> 5 }>).
 
-=item The search query contains a filter.
-
-=item Accessing results past the 1st page using the "page". For every 100 results past the 1st page 1 query credit is deducted.
+=item C<$args> (optional): Hash reference with optional keys C<PAGE> (page number, default 1) and C<NO_MINIFY> (if set, larger fields are not truncated).
 
 =back
 
-B<Parameters>:
-
-The first argument is the C<query> (required). It is a hash reference consisting of key/values pairs. For the full list of acceptable key/value pairs, consult the L<Shodan REST API Documentation|https://developer.shodan.io/api>.
-
-The next argument is C<facets>, and will be a list of properties on which to summarize. It is an array reference containing strings and hash references. In the above example, the query response will include summary data for F<isp>, F<os>, and F<version>, however only the first 3 F<isp> results will be returned and only the first 2 F<os> results will be returned. The F<version> will also be summarized, but will not be limited to a particular count. All distinct F<version>s will be returned in the resultset. For the full list of acceptable facets, consult the L<Shodan REST API Documentation|https://developer.shodan.io/api>.
-
-The third argument is an optional hash reference which may contain one or both of the following keys:
-
-C<PAGE> - The page number to page through results 100 at a time (default: 1). In the above example, the query response will be limited to results 500-600 of the total resultset.
-
-C<NO_MINIFY> - If supplied, some of the larger fields in the resultset will not be truncated. The default is to truncate those fields.
-
 =head3 $shodan->count
 
-Search Shodan without Results
+Search Shodan without returning results - returns only the total count and facet data. Does not consume query credits.
 
     $shodan->count( $query, $facets )
 
-B<Parameters>:
-
-This method behaves exactly as C<$shodan-E<gt>search> with the only difference being that this method does not return any host results, it returns the total number of results that matched the query and any facet information that was requested. As a result, this method does not consume query credits.
-
-The arguments to this method are identical to C<$shodan-E<gt>search>, except this one does not take an optional hash for C<PAGE> and C<NO_MINIFY> since this method only returns a count of results.
+Arguments are identical to C<$shodan-E<gt>search> except C<PAGE> and C<NO_MINIFY> are not accepted.
 
 =head3 $shodan->tokens
 
-Break the search query into tokens - This method lets you determine which filters are being used by the query string and what parameters were provided to the filters.
+Break a search query string into its component tokens and filters.
 
-    $shodan->tokens( $query )
+    $shodan->tokens({ product => 'Apache', port => 80 })
 
-B<Parameters>:
+=head3 $shodan->search_facets
 
-The only argument to this method is the C<query> (required). For details on how to form the C<query>, see the example for C<$shodan-E<gt>search>.
+List all search facets available in Shodan.
 
-=head3 $shodan->services
+    $shodan->search_facets
 
-List all services that Shodan crawls - This method returns an object containing all the services that the Shodan crawlers look at. It can also be used as a quick and practical way to resolve a port number to the name of a service.
+=head3 $shodan->search_filters
 
-    $shodan->services
+List all filters that can be used when searching Shodan.
 
-B<Parameters>:
+    $shodan->search_filters
 
-None
+=head1 ON-DEMAND SCANNING METHODS
+
+=head3 $shodan->ports
+
+List all ports that Shodan is currently crawling on the Internet.
+
+    $shodan->ports
+
+=head3 $shodan->protocols
+
+List all protocols that can be used for on-demand Internet scans.
+
+    $shodan->protocols
+
+=head3 $shodan->scan
+
+Request Shodan to crawl one or more IPs or netblocks.
+
+    $shodan->scan([ '1.2.3.4', '5.6.7.0/24' ])
+
+B<Parameters>: Array reference of IP addresses and/or CIDR netblocks.
+
+=head3 $shodan->scan_internet
+
+Crawl the entire Internet for a specific port and protocol. Requires an academic or enterprise API plan.
+
+    $shodan->scan_internet({ port => 80, protocol => 'http' })
+
+=head3 $shodan->scans
+
+Get a list of all scans you have submitted.
+
+    $shodan->scans
+
+=head3 $shodan->scan_status
+
+Get the status of a previously submitted scan request.
+
+    $shodan->scan_status('SCAN_ID')
+
+=head1 NETWORK ALERT METHODS
+
+=head3 $shodan->create_alert
+
+Create a network alert to monitor a set of IPs or netblocks.
+
+    $shodan->create_alert({ name => 'My Network', ips => ['1.2.3.0/24'], expires => 0 })
+
+B<Parameters>: Hash reference with keys:
+
+=over 2
+
+=item C<name> (required): Name of the alert.
+
+=item C<ips> (required): Array reference of IPs or CIDR netblocks to monitor.
+
+=item C<expires> (optional): Unix timestamp when the alert expires (0 = never).
+
+=back
+
+=head3 $shodan->alerts_info
+
+Get a list of all network alerts you have created.
+
+    $shodan->alerts_info
+
+=head3 $shodan->alert_info
+
+Get details for a specific network alert.
+
+    $shodan->alert_info('ALERT_ID')
+
+=head3 $shodan->edit_alert
+
+Edit the networks monitored by an existing alert.
+
+    $shodan->edit_alert({ id => 'ALERT_ID', ips => ['1.2.3.0/24', '5.6.7.0/24'] })
+
+=head3 $shodan->delete_alert
+
+Delete a network alert.
+
+    $shodan->delete_alert('ALERT_ID')
+
+=head3 $shodan->alert_triggers
+
+Get a list of available triggers that can be attached to alerts.
+
+    $shodan->alert_triggers
+
+=head3 $shodan->enable_trigger
+
+Enable a trigger on an alert.
+
+    $shodan->enable_trigger({ id => 'ALERT_ID', trigger => 'malware' })
+
+=head3 $shodan->disable_trigger
+
+Disable a trigger on an alert.
+
+    $shodan->disable_trigger({ id => 'ALERT_ID', trigger => 'malware' })
+
+=head3 $shodan->add_whitelist
+
+Add an IP/port service to the whitelist for a trigger (so it doesn't generate notifications).
+
+    $shodan->add_whitelist({ id => 'ALERT_ID', trigger => 'malware', service => '1.2.3.4:80' })
+
+The C<service> value must be in C<ip:port> format.
+
+=head3 $shodan->remove_whitelist
+
+Remove a service from a trigger's whitelist.
+
+    $shodan->remove_whitelist({ id => 'ALERT_ID', trigger => 'malware', service => '1.2.3.4:80' })
+
+=head3 $shodan->add_notifier
+
+Attach a notifier to an alert so it receives trigger notifications.
+
+    $shodan->add_notifier({ id => 'ALERT_ID', notifier_id => 'NOTIFIER_ID' })
+
+=head3 $shodan->remove_notifier
+
+Remove a notifier from an alert.
+
+    $shodan->remove_notifier({ id => 'ALERT_ID', notifier_id => 'NOTIFIER_ID' })
+
+=head1 NOTIFIER METHODS
+
+=head3 $shodan->notifiers
+
+List all notification services you have created.
+
+    $shodan->notifiers
+
+=head3 $shodan->notifier_providers
+
+List all available notification providers (e.g. email, Slack).
+
+    $shodan->notifier_providers
+
+=head3 $shodan->notifier_info
+
+Get information about a specific notifier.
+
+    $shodan->notifier_info('NOTIFIER_ID')
+
+=head3 $shodan->create_notifier
+
+Create a new notification service.
+
+    $shodan->create_notifier({
+        provider    => 'email',
+        description => 'My alert emails',
+        to          => 'me@example.com',
+    })
+
+=head3 $shodan->edit_notifier
+
+Edit the destination address of an existing notifier.
+
+    $shodan->edit_notifier({ id => 'NOTIFIER_ID', to => 'new@example.com' })
+
+=head3 $shodan->delete_notifier
+
+Delete a notification service.
+
+    $shodan->delete_notifier('NOTIFIER_ID')
+
+=head1 DIRECTORY METHODS
+
+=head3 $shodan->queries
+
+List saved search queries from the Shodan community directory.
+
+    $shodan->queries
+    $shodan->queries({ page => 1, sort => 'votes', order => 'desc' })
+
+B<Optional parameters>: C<page> (default 1), C<sort> (C<'votes'> or C<'timestamp'>), C<order> (C<'asc'> or C<'desc'>).
+
+=head3 $shodan->search_queries
+
+Search the directory of saved queries.
+
+    $shodan->search_queries({ query => 'apache' })
+    $shodan->search_queries({ query => 'apache', page => 2 })
+
+=head3 $shodan->query_tags
+
+List the most popular tags in the saved query directory.
+
+    $shodan->query_tags
+    $shodan->query_tags({ size => 10 })
 
 =head1 DNS METHODS
 
 =head3 $shodan->resolve_dns
 
-DNS Lookup - Look up the IP address for the provided list of hostnames
+DNS Lookup - Look up the IP address for the provided list of hostnames.
 
-    $shodan->resolve_dns([ qw/google.com bing.com amazon.com/ ])
-
-B<Parameters>:
-
-This method takes one argument, an array reference of domains to be resolved into ip addresses
+    $shodan->resolve_dns([ qw/google.com bing.com/ ])
 
 =head3 $shodan->reverse_dns
 
-Reverse DNS Lookup - Look up the hostnames that have been defined for the given list of IP addresses
+Reverse DNS Lookup - Look up the hostnames defined for the given list of IP addresses.
 
     $shodan->reverse_dns([ qw/74.125.227.230 204.79.197.200/ ])
 
-B<Parameters>:
+=head3 $shodan->domain_info
 
-This method takes one argument, an array reference of ips to be returned as hostnames
+Get all DNS entries and subdomains for a domain. Accepts either a plain domain string or a hash reference for optional parameters.
+
+    $shodan->domain_info('google.com')
+    $shodan->domain_info({ domain => 'google.com', history => 1, type => 'A' })
+
+B<Optional parameters>: C<history> (include historical DNS data), C<type> (DNS record type filter, e.g. C<'A'>, C<'MX'>).
 
 =head1 UTILITY METHODS
 
 =head3 $shodan->my_ip
 
-My IP Address - Get your current IP address as seen from the Internet
+Get your current IP address as seen from the Internet.
 
     $shodan->my_ip
 
-B<Parameters>:
+=head3 $shodan->http_headers
 
-None
+View the HTTP headers that your client sends when connecting to a web server.
+
+    $shodan->http_headers
+
+=head3 $shodan->services
+
+List all services and their port numbers that Shodan recognises. Returns a hash of port => service-name mappings.
+
+    $shodan->services
 
 =head1 API STATUS METHODS
 
 =head3 $shodan->api_info
 
-API Plan Information - Returns information about the API plan belonging to the given API key
+Returns information about the API plan belonging to the given API key.
 
     $shodan->api_info
 
-B<Parameters>:
+=head1 ACCOUNT METHODS
 
-None
+=head3 $shodan->profile
+
+Returns information about the account associated with the API key.
+
+    $shodan->profile
 
 =head1 AUTHOR
 
@@ -432,30 +762,19 @@ Dudley Adams, C<< <dudleyadams at gmail.com> >>
 =head1 BUGS
 
 Please report any bugs or feature requests to C<bug-www-shodan-api at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-Shodan-API>.  I will be notified, and then you'll
-automatically be notified of progress on your bug as I make changes.
+the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-Shodan-API>.
 
 =head1 SUPPORT
 
 You can find documentation for this module with the perldoc command.
 
-	perldoc WWW::Shodan::API
-
-You can also look for information at:
+    perldoc WWW::Shodan::API
 
 =over 4
 
-=item * RT: CPAN's request tracker (report bugs here)
+=item * RT: CPAN's request tracker
 
 L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=WWW-Shodan-API>
-
-=item * AnnoCPAN: Annotated CPAN documentation
-
-L<http://annocpan.org/dist/WWW-Shodan-API>
-
-=item * CPAN Ratings
-
-L<http://cpanratings.perl.org/d/WWW-Shodan-API>
 
 =item * Search CPAN
 
@@ -465,11 +784,9 @@ L<http://search.cpan.org/dist/WWW-Shodan-API/>
 
 =head1 SOURCE CODE
 
-This is open source software. The code repository is available for public review and contribution under the terms of the license.
-
 L<https://github.com/Dudley5000/WWW-Shodan-API>
 
-	git clone https://github.com/Dudley5000/WWW-Shodan-API.git
+    git clone https://github.com/Dudley5000/WWW-Shodan-API.git
 
 =head1 LICENSE AND COPYRIGHT
 
@@ -481,35 +798,4 @@ copy of the full license at:
 
 L<http://www.perlfoundation.org/artistic_license_2_0>
 
-Any use, modification, and distribution of the Standard or Modified
-Versions is governed by this Artistic License. By using, modifying or
-distributing the Package, you accept this license. Do not use, modify,
-or distribute the Package, if you do not accept this license.
-
-If your Modified Version has been derived from a Modified Version made
-by someone other than you, you are nevertheless required to ensure that
-your Modified Version complies with the requirements of this license.
-
-This license does not grant you the right to use any trademark, service
-mark, tradename, or logo of the Copyright Holder.
-
-This license includes the non-exclusive, worldwide, free-of-charge
-patent license to make, have made, use, offer to sell, sell, import and
-otherwise transfer the Package with respect to any patent claims
-licensable by the Copyright Holder that are necessarily infringed by the
-Package. If you institute patent litigation (including a cross-claim or
-counterclaim) against any party alleging that the Package constitutes
-direct or contributory patent infringement, then this Artistic License
-to you shall terminate on the date that such litigation is filed.
-
-Disclaimer of Warranty: THE PACKAGE IS PROVIDED BY THE COPYRIGHT HOLDER
-AND CONTRIBUTORS "AS IS' AND WITHOUT ANY EXPRESS OR IMPLIED WARRANTIES.
-THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-PURPOSE, OR NON-INFRINGEMENT ARE DISCLAIMED TO THE EXTENT PERMITTED BY
-YOUR LOCAL LAW. UNLESS REQUIRED BY LAW, NO COPYRIGHT HOLDER OR
-CONTRIBUTOR WILL BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, OR
-CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THE PACKAGE,
-EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 =cut
-
